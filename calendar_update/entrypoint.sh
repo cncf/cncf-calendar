@@ -46,7 +46,7 @@ sort_by(.[0].category_sort_key) |
 map(
     (.[0].Category) as $current_category_name |
     "<h2>" + (if $current_category_name == "TAG" then "TOC Technical Advisory Groups (TAG)" else $current_category_name end) + " (" + (length | tostring) + ")</h2>\n" +
-    (if $current_category_name == "TAG" then "<p>CNCF Technical Oversight Committee (TOC) meetings can be found on the <a href=\"https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf\">CNCF Main calendar (Project calendar)</a></p>" else "" end) +
+    (if $current_category_name == "TAG" then "<p>CNCF Technical Oversight Committee (TOC) meetings can be found on the <a href=\"https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf?projects=cncf&view=week\">CNCF Main calendar (Project calendar)</a></p>" else "" end) +
     "<ul class=\"project-list\">\n" +
     (map(
         "<li class=\"project-item\"><img src=\"" + ((.ProjectLogo | select(length > 0)) // "https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg") + "\" alt=\"" + .Name + " Logo\" class=\"project-logo\"> " + .Name + " (<a href=\"https://zoom-lfx.platform.linuxfoundation.org/meetings/" + (.Slug | @uri) + "\">Project calendar</a>)" +
