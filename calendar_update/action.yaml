@@ -20,3 +20,29 @@ runs:
       shell: bash
       env:
         LFX_TOKEN: ${{ inputs.lfx-token }}
+    - name: Configure git user for signed commit
+      shell: bash
+      run: |
+        set -euo pipefail
+        GIT_USER_NAME="${GITHUB_ACTOR}"
+        GIT_USER_EMAIL="${GITHUB_ACTOR}@users.noreply.github.com"
+        git config user.name "${GIT_USER_NAME}"
+        git config user.email "${GIT_USER_EMAIL}"
+    - name: Commit and push changes with DCO sign-off
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Stage changes (only add the generated HTML to be safe)
+        if [ -n "${GITHUB_WORKSPACE:-}" ] && [ -f "${GITHUB_WORKSPACE}/index.html" ]; then
+          git add "${GITHUB_WORKSPACE}/index.html"
+        else
+          git add -A
+        fi
+        # Commit only if there are staged changes
+        if git diff --cached --quiet; then
+          echo "No changes to commit."
+          exit 0
+        fi
+        git commit -s -m "chore(calendar): update generated index.html"
+        # Push to the current branch's upstream
+        git push
