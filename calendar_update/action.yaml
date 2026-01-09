@@ -28,7 +28,7 @@ runs:
         GIT_USER_EMAIL="${GITHUB_ACTOR}@users.noreply.github.com"
         git config user.name "${GIT_USER_NAME}"
         git config user.email "${GIT_USER_EMAIL}"
-    - name: Commit and push changes with DCO sign-off
+    - name: Stage and commit changes with DCO sign-off
       shell: bash
       run: |
         set -euo pipefail
@@ -44,5 +44,3 @@ runs:
           exit 0
         fi
         git commit -s -m "chore(calendar): update generated index.html"
-        # Push to the current branch's upstream
-        git push

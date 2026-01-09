@@ -27,7 +27,6 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "docs: Update CNCF project calendar page"
           title: "Automated CNCF Calendar Update"
           body: |
             This is an auto-generated PR with the latest project calendar updates.
