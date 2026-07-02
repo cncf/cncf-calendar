@@ -3,8 +3,6 @@ name: Generate and Propose CNCF Project Page Update
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 5 * * 1' # 05:00 UTC (Monday)
 
 permissions:
   contents: write
