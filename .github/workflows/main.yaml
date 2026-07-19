@@ -1,6 +1,5 @@
 # .github/workflows/main.yaml
 name: Generate and Propose CNCF Project Page Update
-
 on:
   workflow_dispatch:
 
@@ -8,12 +7,19 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: cncf-calendar-update
+  cancel-in-progress: false
+
 jobs:
   build-and-propose-update:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
       - name: Generate Project Page
         id: build-step
@@ -22,7 +28,7 @@ jobs:
           lfx-token: ${{ secrets.LFX_TOKEN }}
 
       - name: Create Pull Request with updated index.html
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@5e914681df9dc83aa4e4905692ca88beb2f9e91 # v6.1.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           title: "Automated CNCF Calendar Update"
@@ -30,4 +36,4 @@ jobs:
             This is an auto-generated PR with the latest project calendar updates.
             Please review the changes to `index.html` and merge if they look correct.
           branch: "update/cncf-calendar-${{ github.run_id }}"
-        # labels: automated, documentation
+          labels: automated, documentation
