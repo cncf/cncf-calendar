@@ -1,3 +1,4 @@
+# action.yaml
 name: 'Generate Project Webpage'
 description: 'Fetches project data from the LF API and generates a static HTML page.'
 
@@ -16,31 +17,62 @@ runs:
   steps:
     - id: run-script
       name: Run the entrypoint script
-      run: ${{ github.action_path }}/entrypoint.sh # This line works automatically
+      # Se invoca explícitamente con bash y entre comillas para no depender
+      # del bit de ejecución del archivo (puede perderse en checkout/clone)
+      # ni romperse si la ruta contiene espacios.
+      run: bash "${{ github.action_path }}/entrypoint.sh"
       shell: bash
+      working-directory: ${{ github.workspace }}
       env:
         LFX_TOKEN: ${{ inputs.lfx-token }}
+
+    - name: Validate generated output
+      shell: bash
+      run: |
+        set -euo pipefail
+        HTML_FILE="${{ steps.run-script.outputs.html_file }}"
+        if [ -z "${HTML_FILE}" ]; then
+          echo "::error::entrypoint.sh no reportó 'html_file' en GITHUB_OUTPUT."
+          exit 1
+        fi
+        if [ ! -f "${HTML_FILE}" ]; then
+          echo "::error::El archivo reportado (${HTML_FILE}) no existe en el filesystem."
+          exit 1
+        fi
+        echo "Archivo generado verificado: ${HTML_FILE}"
+
     - name: Configure git user for signed commit
       shell: bash
+      # NOTA (DCO): el commit se firma como GITHUB_ACTOR, es decir, la persona
+      # que disparó manualmente el workflow (workflow_dispatch). Esto es correcto
+      # mientras este action solo se use con triggers manuales. Si en el futuro
+      # se reutiliza con un trigger automático (schedule/push), GITHUB_ACTOR será
+      # un bot y el sign-off dejará de representar a un humano responsable —
+      # revisar este supuesto antes de reutilizar en ese contexto.
       run: |
         set -euo pipefail
-        GIT_USER_NAME="${GITHUB_ACTOR}"
-        GIT_USER_EMAIL="${GITHUB_ACTOR}@users.noreply.github.com"
-        git config user.name "${GIT_USER_NAME}"
-        git config user.email "${GIT_USER_EMAIL}"
+        git config user.name "${GITHUB_ACTOR}"
+        git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+
     - name: Stage and commit changes with DCO sign-off
       shell: bash
+      working-directory: ${{ github.workspace }}
       run: |
         set -euo pipefail
-        # Stage changes (only add the generated HTML to be safe)
-        if [ -n "${GITHUB_WORKSPACE:-}" ] && [ -f "${GITHUB_WORKSPACE}/index.html" ]; then
-          git add "${GITHUB_WORKSPACE}/index.html"
-        else
-          git add -A
+        HTML_FILE="${{ steps.run-script.outputs.html_file }}"
+
+        # Solo se agrega el archivo generado explícitamente. Si no existe,
+        # se falla en vez de caer a `git add -A`, para no arrastrar cambios
+        # no deseados (logs, temporales, etc.) al PR automático.
+        if [ ! -f "${HTML_FILE}" ]; then
+          echo "::error::No se encontró ${HTML_FILE} para agregar al commit."
+          exit 1
         fi
-        # Commit only if there are staged changes
+        git add "${HTML_FILE}"
+
         if git diff --cached --quiet; then
           echo "No changes to commit."
           exit 0
         fi
+
         git commit -s -m "chore(calendar): update generated index.html"
