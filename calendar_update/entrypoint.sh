@@ -1,34 +1,43 @@
 #!/bin/bash
 # entrypoint.sh
 #
-# This script fetches CNCF project data from the LFX API, processes it, and generates an HTML file listing projects by category.
-# It is designed for use in a GitHub Action and expects the LFX_TOKEN environment variable to be set.
+# Fetches CNCF project data from the LFX API, processes it, and generates an
+# HTML file listing projects by category. Expects LFX_TOKEN and GITHUB_WORKSPACE
+# to be set (designed to run inside a GitHub Action).
 
-# Strict error handling: exit on error, unset variable, or failed pipeline
 set -euo pipefail
 
-# Trap to ensure temp files are cleaned up on exit or error
+# Se inicializa vacía ANTES de registrar el trap, para que cleanup() nunca
+# reciba una variable no definida si el script sale antes de crear el temp file.
+FORMING_PROJECTS_TEMP_FILE=""
 cleanup() {
-    rm -f "$FORMING_PROJECTS_TEMP_FILE"
+    [ -n "${FORMING_PROJECTS_TEMP_FILE:-}" ] && rm -f "$FORMING_PROJECTS_TEMP_FILE"
 }
 trap cleanup EXIT
 
-# 1. TOKEN VALIDATION: Read the token from an environment variable.
 if [ -z "${LFX_TOKEN:-}" ]; then
     echo "Error: The LFX_TOKEN environment variable is not set." >&2
     exit 1
 fi
 
-# API and HTML settings
+if [ -z "${GITHUB_WORKSPACE:-}" ]; then
+    echo "Error: GITHUB_WORKSPACE is not set (this script expects to run inside GitHub Actions)." >&2
+    exit 1
+fi
+
 BASE_API_URL="https://api-gw.platform.linuxfoundation.org/project-service/v1/projects"
 OUTPUT_HTML_FILE="${GITHUB_WORKSPACE}/index.html"
 PAGE_SIZE=100
-OFFSET=0
 FOUNDATION_ID="a0941000002wBz4AAE" # CNCF Foundation ID
 FORMING_PROJECTS_STATUS="Formation - Exploratory"
+CURL_MAX_TIME=30
+CURL_MAX_RETRIES=3
+
 FORMING_PROJECTS_TEMP_FILE=$(mktemp)
 
-# JQ processors for HTML generation
+# JQ processors — @html escapa Name/ProjectLogo/RepositoryURL para prevenir
+# inyección de HTML/atributos rotos con datos que vienen de una API externa.
+# RepositoryURL además se valida con test("^https?://") antes de usarse como href.
 JQ_HTML_PROCESSOR='
 def category_rank:
   if .Category == "TAG" then 1
@@ -39,7 +48,7 @@ def category_rank:
   end;
 [inputs] |
 map(. + {category_sort_key: category_rank}) |
-map(select(select(.category_sort_key > 0))) |
+map(select(.category_sort_key > 0)) |
 sort_by([.category_sort_key, .Name]) |
 group_by(.Category) |
 sort_by(.[0].category_sort_key) |
@@ -49,8 +58,8 @@ map(
     (if $current_category_name == "TAG" then "<p>CNCF Technical Oversight Committee (TOC) meetings can be found on the <a href=\"https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf?projects=cncf&view=week\">CNCF Main calendar (Project calendar)</a></p>" else "" end) +
     "<ul class=\"project-list\">\n" +
     (map(
-        "<li class=\"project-item\"><img src=\"" + ((.ProjectLogo | select(length > 0)) // "https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg") + "\" alt=\"" + .Name + " Logo\" class=\"project-logo\"> " + .Name + " (<a href=\"https://zoom-lfx.platform.linuxfoundation.org/meetings/" + (.Slug | @uri) + "\">Project calendar</a>)" +
-        (if .RepositoryURL and (.RepositoryURL | length > 0) then " (<a href=\"" + .RepositoryURL + "\">Project code</a>)" else "" end) +
+        "<li class=\"project-item\"><img src=\"" + (((.ProjectLogo | select(length > 0)) // "https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg") | @html) + "\" alt=\"" + (.Name | @html) + " Logo\" class=\"project-logo\"> " + (.Name | @html) + " (<a href=\"https://zoom-lfx.platform.linuxfoundation.org/meetings/" + (.Slug | @uri) + "\">Project calendar</a>)" +
+        (if .RepositoryURL and (.RepositoryURL | length > 0) and (.RepositoryURL | test("^https?://")) then " (<a href=\"" + (.RepositoryURL | @html) + "\">Project code</a>)" else "" end) +
         "</li>\n"
     ) | add) +
     "</ul>\n"
@@ -58,20 +67,18 @@ map(
 '
 
 JQ_FORMING_PROJECTS_PROCESSOR='
-. | # Expects an array as input
+. |
 sort_by(.Name) |
-# Now map the array to HTML, including the count (length of the array)
 (length) as $project_count |
 "<h2>Forming Projects (" + ($project_count | tostring) + ")</h2>\n<ul class=\"project-list\">\n" +
 (map(
-    "<li class=\"project-item\"><img src=\"" + ((.ProjectLogo | select(length > 0)) // "https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg") + "\" alt=\"" + .Name + " Logo\" class=\"project-logo\"> " + .Name +
-    (if .RepositoryURL and (.RepositoryURL | length > 0) then " (<a href=\"" + .RepositoryURL + "\">GitHub</a>)" else "" end) +
+    "<li class=\"project-item\"><img src=\"" + (((.ProjectLogo | select(length > 0)) // "https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg") | @html) + "\" alt=\"" + (.Name | @html) + " Logo\" class=\"project-logo\"> " + (.Name | @html) +
+    (if .RepositoryURL and (.RepositoryURL | length > 0) and (.RepositoryURL | test("^https?://")) then " (<a href=\"" + (.RepositoryURL | @html) + "\">GitHub</a>)" else "" end) +
     "</li>\n"
 ) | add) +
 "</ul>\n"
 '
 
-# Function: Print the HTML header and search box
 print_html_header() {
     cat <<EOF
 <!DOCTYPE html>
@@ -155,7 +162,6 @@ print_html_header() {
 EOF
 }
 
-# Function: Print the HTML footer
 print_html_footer() {
     cat <<EOF
 </body>
@@ -163,18 +169,35 @@ print_html_footer() {
 EOF
 }
 
-# Function: Fetch all paginated project data from the API
+# Fetch con manejo real de errores: --fail hace que un 4xx/5xx cuente como
+# fallo de curl; hay reintentos con backoff; y si tras los reintentos sigue
+# fallando, el script SALE (exit 1) en vez de romper el loop silenciosamente.
 fetch_all_projects() {
     local offset=0
     while true; do
         local current_api_url="${BASE_API_URL}?offset=${offset}&limit=${PAGE_SIZE}"
-        local response
-        response=$(curl -sS -H "Authorization: Bearer $LFX_TOKEN" "$current_api_url")
+        local response=""
+        local retry_count=0
 
-        # Validate JSON and presence of .Data
+        while [ "$retry_count" -lt "$CURL_MAX_RETRIES" ]; do
+            if response=$(curl -sS --fail --max-time "$CURL_MAX_TIME" \
+                -H "Authorization: Bearer $LFX_TOKEN" \
+                "$current_api_url"); then
+                break
+            fi
+            retry_count=$((retry_count + 1))
+            echo "Warning: LFX API request failed (offset=$offset), retry $retry_count/$CURL_MAX_RETRIES..." >&2
+            sleep $((retry_count * 2))
+        done
+
+        if [ "$retry_count" -eq "$CURL_MAX_RETRIES" ]; then
+            echo "Error: LFX API request failed after $CURL_MAX_RETRIES retries (offset=$offset). Aborting." >&2
+            exit 1
+        fi
+
         if ! echo "$response" | jq -e '.Data' > /dev/null 2>&1; then
-            echo "Error: Invalid JSON response or 'Data' array not found for offset $offset." >&2
-            break
+            echo "Error: Invalid JSON response or 'Data' array missing for offset $offset. Aborting." >&2
+            exit 1
         fi
 
         local projects_received_on_page
@@ -183,12 +206,13 @@ fetch_all_projects() {
             break
         fi
 
-        # Output main category projects as JSON lines
-        echo "$response" | jq -c '.Data[] | select(.Foundation.ID == "'"$FOUNDATION_ID"'" and .Status == "Active") | {Name: .Name, Slug: .Slug, Category: .Category, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}'
+        # --arg evita interpolar variables directamente dentro del programa jq
+        echo "$response" | jq -c --arg fid "$FOUNDATION_ID" \
+            '.Data[] | select(.Foundation.ID == $fid and .Status == "Active") | {Name: .Name, Slug: .Slug, Category: .Category, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}'
 
-        # Output forming projects to temp file
         local forming_json
-        forming_json=$(echo "$response" | jq -c '.Data[] | select(.Foundation.ID == "'"$FOUNDATION_ID"'" and .Status == "'"$FORMING_PROJECTS_STATUS"'") | {Name: .Name, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
+        forming_json=$(echo "$response" | jq -c --arg fid "$FOUNDATION_ID" --arg status "$FORMING_PROJECTS_STATUS" \
+            '.Data[] | select(.Foundation.ID == $fid and .Status == $status) | {Name: .Name, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
         if [ -n "$forming_json" ]; then
             echo "$forming_json" >> "$FORMING_PROJECTS_TEMP_FILE"
         fi
@@ -198,33 +222,42 @@ fetch_all_projects() {
     done
 }
 
-# Function: Generate HTML for main project categories using jq
 generate_main_categories_html() {
     jq -n -r "$JQ_HTML_PROCESSOR"
 }
 
-# Function: Generate HTML for forming projects using jq
 generate_forming_projects_html() {
     if [ -s "$FORMING_PROJECTS_TEMP_FILE" ]; then
-        cat "$FORMING_PROJECTS_TEMP_FILE" | jq -s '.' | jq -r "$JQ_FORMING_PROJECTS_PROCESSOR"
+        jq -s '.' "$FORMING_PROJECTS_TEMP_FILE" | jq -r "$JQ_FORMING_PROJECTS_PROCESSOR"
     else
-        echo "<h2>Forming Projects (0)</h2>\n<ul class=\"project-list\">\n</ul>"
+        # printf en vez de echo: echo sin -e imprimía "\n" como texto literal visible.
+        printf '<h2>Forming Projects (0)</h2>\n<ul class="project-list">\n</ul>\n'
     fi
 }
 
-# Main execution: generate HTML file
 {
     print_html_header
-    # Fetch and process all projects, pipe to jq for main categories
     fetch_all_projects | generate_main_categories_html
-    # Generate forming projects section
     generate_forming_projects_html
     print_html_footer
 } > "$OUTPUT_HTML_FILE"
 
-# Log summary and set GitHub Action output
-TOTAL_FORMING_PROJECTS_FINAL_COUNT=$(if [ -s "$FORMING_PROJECTS_TEMP_FILE" ]; then cat "$FORMING_PROJECTS_TEMP_FILE" | wc -l; else echo 0; fi)
-echo "Total projects matching Foundation ID filter (main categories): (count from HTML if accurate, or 0 if from subshell)"
-echo "Total 'Formation - Exploratory' projects identified: $TOTAL_FORMING_PROJECTS_FINAL_COUNT"
+TOTAL_FORMING_PROJECTS_FINAL_COUNT=0
+if [ -s "$FORMING_PROJECTS_TEMP_FILE" ]; then
+    TOTAL_FORMING_PROJECTS_FINAL_COUNT=$(wc -l < "$FORMING_PROJECTS_TEMP_FILE")
+fi
+
+TOTAL_PROJECT_ITEMS=$(grep -o 'class="project-item"' "$OUTPUT_HTML_FILE" | wc -l)
+
+# Sanity check: si no se encontró NINGÚN proyecto (main o forming), algo salió
+# mal upstream (token, esquema de API, filtro). Se falla en vez de publicar
+# una página vacía sin avisar.
+if [ "$TOTAL_PROJECT_ITEMS" -eq 0 ]; then
+    echo "Error: No se encontró ningún proyecto en la respuesta de la API. Abortando para no publicar una página vacía." >&2
+    exit 1
+fi
+
+echo "Total de entradas de proyecto en la página generada (todas las categorías): $TOTAL_PROJECT_ITEMS"
+echo "Total de proyectos 'Formation - Exploratory' identificados: $TOTAL_FORMING_PROJECTS_FINAL_COUNT"
 echo "HTML file generated: $OUTPUT_HTML_FILE"
 echo "html_file=${OUTPUT_HTML_FILE}" >> "$GITHUB_OUTPUT"
