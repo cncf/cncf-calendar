@@ -9,7 +9,7 @@ permissions:
 
 concurrency:
   group: cncf-calendar-update
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build-and-propose-update:
