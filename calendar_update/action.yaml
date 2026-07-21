@@ -32,11 +32,11 @@ runs:
         set -euo pipefail
         HTML_FILE="${{ steps.run-script.outputs.html_file }}"
         if [ -z "${HTML_FILE}" ]; then
-          echo "::error::entrypoint.sh no reportó 'html_file' en GITHUB_OUTPUT."
+          echo "::error::entrypoint.sh did not report 'html_file' in GITHUB_OUTPUT."
           exit 1
         fi
         if [ ! -f "${HTML_FILE}" ]; then
-          echo "::error::El archivo reportado (${HTML_FILE}) no existe en el filesystem."
+          echo "::error::Reported file (${HTML_FILE}) does not exist in the filesystem."
           exit 1
         fi
         echo "Archivo generado verificado: ${HTML_FILE}"
