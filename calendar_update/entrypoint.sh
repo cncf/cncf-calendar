@@ -247,7 +247,7 @@ if [ -s "$FORMING_PROJECTS_TEMP_FILE" ]; then
     TOTAL_FORMING_PROJECTS_FINAL_COUNT=$(wc -l < "$FORMING_PROJECTS_TEMP_FILE")
 fi
 
-TOTAL_PROJECT_ITEMS=$(grep -o 'class="project-item"' "$OUTPUT_HTML_FILE" | wc -l)
+TOTAL_PROJECT_ITEMS=$(grep -o 'class="project-item"' "$OUTPUT_HTML_FILE" | wc -l || true)
 
 # Sanity check: si no se encontró NINGÚN proyecto (main o forming), algo salió
 # mal upstream (token, esquema de API, filtro). Se falla en vez de publicar
