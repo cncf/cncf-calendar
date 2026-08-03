@@ -190,8 +190,9 @@ fetch_all_projects() {
             fi
             retry_count=$((retry_count + 1))
             echo "Warning: LFX API request failed (offset=$offset), retry $retry_count/$CURL_MAX_RETRIES..." >&2
-            sleep $((retry_count * 2))
-        done
+            if [ "$retry_count" -lt "$CURL_MAX_RETRIES" ]; then
+                sleep $((retry_count * 2))
+            fi
 
         if [ "$retry_count" -eq "$CURL_MAX_RETRIES" ]; then
             echo "Error: LFX API request failed after $CURL_MAX_RETRIES retries (offset=$offset). Aborting." >&2
