@@ -16,29 +16,59 @@ runs:
   steps:
     - id: run-script
       name: Run the entrypoint script
-      run: ${{ github.action_path }}/entrypoint.sh # This line works automatically
+      # Invoke with bash explicitly so we don't depend on the file's execute
+      # bit (which can be lost on checkout/clone) and don't break on paths
+      # with spaces.
+      run: bash "${{ github.action_path }}/entrypoint.sh"
       shell: bash
+      working-directory: ${{ github.workspace }}
       env:
         LFX_TOKEN: ${{ inputs.lfx-token }}
+
+    - name: Validate generated output
+      shell: bash
+      run: |
+        set -euo pipefail
+        HTML_FILE="${{ steps.run-script.outputs.html_file }}"
+        if [ -z "${HTML_FILE}" ]; then
+          echo "::error::entrypoint.sh did not report 'html_file' in GITHUB_OUTPUT."
+          exit 1
+        fi
+        if [ ! -f "${HTML_FILE}" ]; then
+          echo "::error::Reported file (${HTML_FILE}) does not exist on disk."
+          exit 1
+        fi
+        echo "Verified generated file: ${HTML_FILE}"
+
     - name: Configure git user for signed commit
       shell: bash
+      # DCO note: the commit is signed off as GITHUB_ACTOR, i.e. whoever
+      # triggered the workflow. This is only meaningful while the action runs
+      # on a manual trigger (workflow_dispatch). If it is ever reused with an
+      # automatic trigger, GITHUB_ACTOR becomes a bot and the sign-off no
+      # longer represents a responsible human — revisit this assumption first.
       run: |
         set -euo pipefail
-        GIT_USER_NAME="${GITHUB_ACTOR}"
-        GIT_USER_EMAIL="${GITHUB_ACTOR}@users.noreply.github.com"
-        git config user.name "${GIT_USER_NAME}"
-        git config user.email "${GIT_USER_EMAIL}"
+        git config user.name "${GITHUB_ACTOR}"
+        git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+
     - name: Stage and commit changes with DCO sign-off
       shell: bash
+      working-directory: ${{ github.workspace }}
       run: |
         set -euo pipefail
-        # Stage changes (only add the generated HTML to be safe)
-        if [ -n "${GITHUB_WORKSPACE:-}" ] && [ -f "${GITHUB_WORKSPACE}/index.html" ]; then
-          git add "${GITHUB_WORKSPACE}/index.html"
-        else
-          git add -A
+        HTML_FILE="${{ steps.run-script.outputs.html_file }}"
+
+        # Only add the explicitly generated file. If it is missing, fail
+        # instead of falling back to `git add -A`, so we never sweep unwanted
+        # changes (logs, temp files, etc.) into the automated PR.
+        if [ ! -f "${HTML_FILE}" ]; then
+          echo "::error::Expected ${HTML_FILE} was not found to commit."
+          exit 1
         fi
-        # Commit only if there are staged changes
+        git add "${HTML_FILE}"
+
+        # Commit only if there are staged changes.
         if git diff --cached --quiet; then
           echo "No changes to commit."
           exit 0
