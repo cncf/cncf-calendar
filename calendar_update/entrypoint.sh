@@ -44,11 +44,11 @@ sort_by(.[0].category_sort_key) |
 map(
     (.[0].Category) as $current_category_name |
     "<h2>" + (if $current_category_name == "TAG" then "TOC Technical Advisory Groups (TAG)" else $current_category_name end) + " (" + (length | tostring) + ")</h2>\n" +
-    (if $current_category_name == "TAG" then "<p>CNCF Technical Oversight Committee (TOC) meetings can be found on the <a href=\"https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf?projects=cncf&view=week\">CNCF Main calendar (Project calendar)</a></p>" else "" end) +
+    (if $current_category_name == "TAG" then "<p>CNCF Technical Oversight Committee (TOC) meetings can be found on the <a href=\"https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf?projects=cncf&view=week\" target=\"_blank\" rel=\"noopener noreferrer\">CNCF Main calendar (Project calendar)</a></p>" else "" end) +
     "<ul class=\"project-list\">\n" +
     (map(
-        "<li class=\"project-item\"><img src=\"" + ((.ProjectLogo | select(length > 0)) // "https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg") + "\" alt=\"" + .Name + " Logo\" class=\"project-logo\"> " + .Name + " (<a href=\"https://zoom-lfx.platform.linuxfoundation.org/meetings/" + (.Slug | @uri) + "\">Project calendar</a>)" +
-        (if .RepositoryURL and (.RepositoryURL | length > 0) then " (<a href=\"" + .RepositoryURL + "\">Project code</a>)" else "" end) +
+        "<li class=\"project-item\"><img src=\"" + ((.ProjectLogo | select(length > 0)) // "https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg") + "\" alt=\"" + .Name + " Logo\" class=\"project-logo\"> " + .Name + " (<a href=\"https://zoom-lfx.platform.linuxfoundation.org/meetings/" + (.Slug | @uri) + "\" target=\"_blank\" rel=\"noopener noreferrer\">Project calendar</a>)" +
+        (if .RepositoryURL and (.RepositoryURL | length > 0) then " (<a href=\"" + .RepositoryURL + "\" target=\"_blank\" rel=\"noopener noreferrer\">Project code</a>)" else "" end) +
         "</li>\n"
     ) | add) +
     "</ul>\n"
@@ -63,7 +63,7 @@ sort_by(.Name) |
 "<h2>Forming Projects (" + ($project_count | tostring) + ")</h2>\n<ul class=\"project-list\">\n" +
 (map(
     "<li class=\"project-item\"><img src=\"" + ((.ProjectLogo | select(length > 0)) // "https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg") + "\" alt=\"" + .Name + " Logo\" class=\"project-logo\"> " + .Name +
-    (if .RepositoryURL and (.RepositoryURL | length > 0) then " (<a href=\"" + .RepositoryURL + "\">GitHub</a>)" else "" end) +
+    (if .RepositoryURL and (.RepositoryURL | length > 0) then " (<a href=\"" + .RepositoryURL + "\" target=\"_blank\" rel=\"noopener noreferrer\">GitHub</a>)" else "" end) +
     "</li>\n"
 ) | add) +
 "</ul>\n"
@@ -121,7 +121,7 @@ print_html_header() {
     <h1> </h1>
     <h2>Main Calendar</h2>
     <ul>
-        <li><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg" alt="CNCF Logo" width="200" height="200" style="vertical-align: middle; margin-right: 16px; object-fit: contain;"> CNCF Main calendar (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf">Project calendar</a>)</li>
+        <li><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg" alt="CNCF Logo" width="200" height="200" style="vertical-align: middle; margin-right: 16px; object-fit: contain;"> CNCF Main calendar (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf" target="_blank" rel="noopener noreferrer">Project calendar</a>)</li>
     </ul>
     <input type="text" id="search-box" onkeyup="filterProjects()" placeholder="Search for projects...">
     <script>
