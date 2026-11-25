@@ -7,12 +7,6 @@
 # Strict error handling: exit on error, unset variable, or failed pipeline
 set -euo pipefail
 
-# Trap to ensure temp files are cleaned up on exit or error
-cleanup() {
-    rm -f "$FORMING_PROJECTS_TEMP_FILE"
-}
-trap cleanup EXIT
-
 # 1. TOKEN VALIDATION: Read the token from an environment variable.
 if [ -z "${LFX_TOKEN:-}" ]; then
     echo "Error: The LFX_TOKEN environment variable is not set." >&2
@@ -23,8 +17,6 @@ fi
 BASE_API_URL="https://lfx-api.v2.cluster.lfx.dev/query/resources"
 OUTPUT_HTML_FILE="${GITHUB_WORKSPACE}/index.html"
 PAGE_SIZE=100
-FORMING_PROJECTS_STATUS="Formation - Exploratory"
-FORMING_PROJECTS_TEMP_FILE=$(mktemp)
 
 # JQ processors for HTML generation
 JQ_HTML_PROCESSOR='
@@ -53,20 +45,6 @@ map(
     ) | add) +
     "</ul>\n"
 ) | add
-'
-
-JQ_FORMING_PROJECTS_PROCESSOR='
-. | # Expects an array as input
-sort_by(.Name) |
-# Now map the array to HTML, including the count (length of the array)
-(length) as $project_count |
-"<h2>Forming Projects (" + ($project_count | tostring) + ")</h2>\n<ul class=\"project-list\">\n" +
-(map(
-    "<li class=\"project-item\"><img src=\"" + ((.ProjectLogo | select(length > 0)) // "https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg") + "\" alt=\"" + .Name + " Logo\" class=\"project-logo\"> " + .Name +
-    (if .RepositoryURL and (.RepositoryURL | length > 0) then " (<a href=\"" + .RepositoryURL + "\" target=\"_blank\" rel=\"noopener noreferrer\">GitHub</a>)" else "" end) +
-    "</li>\n"
-) | add) +
-"</ul>\n"
 '
 
 # Function: Print the HTML header and search box
@@ -228,15 +206,6 @@ fetch_all_projects() {
                ProjectLogo: (.logo_url // .project_logo // .logo // ""),
                RepositoryURL: (.repository_url // "")}' "$response_file"
 
-        local forming_json
-        forming_json=$(jq -c '.resources[].data
-            | select(.stage == "'"$FORMING_PROJECTS_STATUS"'")
-            | {Name: .name, ProjectLogo: (.logo_url // .project_logo // .logo // ""),
-               RepositoryURL: (.repository_url // "")}' "$response_file")
-        if [ -n "$forming_json" ]; then
-            echo "$forming_json" >> "$FORMING_PROJECTS_TEMP_FILE"
-        fi
-
         project_count=$((project_count + $(jq '.resources | length' "$response_file")))
         page_token=$(jq -r '.page_token // ""' "$response_file")
         [ -n "$page_token" ] || break
@@ -255,28 +224,14 @@ generate_main_categories_html() {
     jq -n -r "$JQ_HTML_PROCESSOR"
 }
 
-# Function: Generate HTML for forming projects using jq
-generate_forming_projects_html() {
-    if [ -s "$FORMING_PROJECTS_TEMP_FILE" ]; then
-        cat "$FORMING_PROJECTS_TEMP_FILE" | jq -s '.' | jq -r "$JQ_FORMING_PROJECTS_PROCESSOR"
-    else
-        echo "<h2>Forming Projects (0)</h2>\n<ul class=\"project-list\">\n</ul>"
-    fi
-}
-
 # Main execution: generate HTML file
 {
     print_html_header
     # Fetch and process all projects, pipe to jq for main categories
     fetch_all_projects | generate_main_categories_html
-    # Generate forming projects section
-    generate_forming_projects_html
     print_html_footer
 } > "$OUTPUT_HTML_FILE"
 
 # Log summary and set GitHub Action output
-TOTAL_FORMING_PROJECTS_FINAL_COUNT=$(if [ -s "$FORMING_PROJECTS_TEMP_FILE" ]; then cat "$FORMING_PROJECTS_TEMP_FILE" | wc -l; else echo 0; fi)
-echo "Total projects matching Foundation ID filter (main categories): (count from HTML if accurate, or 0 if from subshell)"
-echo "Total 'Formation - Exploratory' projects identified: $TOTAL_FORMING_PROJECTS_FINAL_COUNT"
 echo "HTML file generated: $OUTPUT_HTML_FILE"
 echo "html_file=${OUTPUT_HTML_FILE}" >> "$GITHUB_OUTPUT"

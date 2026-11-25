@@ -4,14 +4,13 @@ A GitHub Action and static site generator for listing CNCF (Cloud Native Computi
 
 ## Overview
 
-This project fetches project data from the Linux Foundation API and generates a modern, searchable HTML page listing CNCF projects by category (TAG, Graduated, Incubating, Sandbox, and Forming). Each project entry includes its logo, name, calendar link, and repository link (if available).
+This project fetches project data from the Linux Foundation API and generates a modern, searchable HTML page listing CNCF projects by category (TAG, Graduated, Incubating, and Sandbox). Each project entry includes its logo, name, calendar link, and repository link (if available).
 
 The generated site is suitable for publishing as a GitHub Pages site or for use in other static hosting environments.
 
 ## Features
 - **Automated Data Fetching:** Uses the LFX API to retrieve up-to-date CNCF project information.
 - **Categorized Listing:** Projects are grouped and sorted by their CNCF category.
-- **Forming Projects:** Special section for projects in the "Formation - Exploratory" state.
 - **Modern UI:** Clean, responsive HTML with a search box for filtering projects.
 - **Easy Integration:** Designed for use in CI/CD pipelines (e.g., GitHub Actions).
 
