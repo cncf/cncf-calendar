@@ -21,7 +21,7 @@ The generated site is suitable for publishing as a GitHub Pages site or for use 
 - **jq**: Command-line JSON processor (required by the script)
 - **curl**: For API requests
 - **Bash**: The script uses bash-specific features
-- **LFX_TOKEN**: You must provide a valid LFX API token as an environment variable
+- **LFX_TOKEN**: For manual runs, provide a valid LFX API token. GitHub Actions mints one at runtime from organization credentials.
 
 ### Running the Script
 
@@ -36,7 +36,7 @@ The generated site is suitable for publishing as a GitHub Pages site or for use 
    The script will generate an `index.html` file in the repository root (or in the directory specified by `$GITHUB_WORKSPACE`).
 
 ### GitHub Actions
-This script is designed to be used as part of a GitHub Action workflow. Ensure your workflow sets the `LFX_TOKEN` secret and checks out the repository.
+This script is designed to be used as part of a GitHub Action workflow. The scheduled workflow mints a short-lived production V1 token from the `LFX_PROD_CLIENT_ID` and `LFX_PROD_CLIENT_SECRET` organization secrets. A repository-level `LFX_TOKEN` secret is not required.
 
 ## File Structure
 - `calendar_update/entrypoint.sh`: Main script for fetching data and generating HTML

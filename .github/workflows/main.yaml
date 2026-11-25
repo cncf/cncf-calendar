@@ -3,6 +3,8 @@ name: Generate and Propose CNCF Project Page Update
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
 
 permissions:
   contents: write
@@ -15,11 +17,20 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Mint production V1 token
+        id: mint-token
+        env:
+          LFX_CLIENT_ID: ${{ secrets.LFX_PROD_CLIENT_ID }}
+          LFX_CLIENT_SECRET: ${{ secrets.LFX_PROD_CLIENT_SECRET }}
+          LFX_AUTH0_TOKEN_URL: https://linuxfoundation.auth0.com/oauth/token
+          LFX_API_AUDIENCE: https://api-gw.platform.linuxfoundation.org/
+        run: bash calendar_update/mint_lfx_token.sh
+
       - name: Generate Project Page
         id: build-step
         uses: ./calendar_update
         with:
-          lfx-token: ${{ secrets.LFX_TOKEN }}
+          lfx-token: ${{ steps.mint-token.outputs.token }}
 
       - name: Create Pull Request with updated index.html
         uses: peter-evans/create-pull-request@v6
@@ -30,4 +41,5 @@ jobs:
             This is an auto-generated PR with the latest project calendar updates.
             Please review the changes to `index.html` and merge if they look correct.
           branch: "update/cncf-calendar-${{ github.run_id }}"
+          assignees: riaankleinhans
         # labels: automated, documentation
