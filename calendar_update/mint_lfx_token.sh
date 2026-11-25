@@ -42,4 +42,4 @@ fi
 
 printf '::add-mask::%s\n' "$access_token"
 printf 'token=%s\n' "$access_token" >> "$GITHUB_OUTPUT"
-echo "Production V1 token issued, expires in $(jq -r '.expires_in' "$response_file") seconds."
+echo "Production V2 token issued, expires in $(jq -r '.expires_in' "$response_file") seconds."

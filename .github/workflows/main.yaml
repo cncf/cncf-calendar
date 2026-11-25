@@ -17,13 +17,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Mint production V1 token
+      - name: Mint production V2 token
         id: mint-token
         env:
           LFX_CLIENT_ID: ${{ secrets.LFX_PROD_CLIENT_ID }}
           LFX_CLIENT_SECRET: ${{ secrets.LFX_PROD_CLIENT_SECRET }}
           LFX_AUTH0_TOKEN_URL: https://linuxfoundation.auth0.com/oauth/token
-          LFX_API_AUDIENCE: https://api-gw.platform.linuxfoundation.org/
+          LFX_API_AUDIENCE: https://lfx-api.v2.cluster.lfx.dev/
         run: bash calendar_update/mint_lfx_token.sh
 
       - name: Generate Project Page

@@ -20,11 +20,9 @@ if [ -z "${LFX_TOKEN:-}" ]; then
 fi
 
 # API and HTML settings
-BASE_API_URL="https://api-gw.platform.linuxfoundation.org/project-service/v1/projects"
+BASE_API_URL="https://lfx-api.v2.cluster.lfx.dev/query/resources"
 OUTPUT_HTML_FILE="${GITHUB_WORKSPACE}/index.html"
 PAGE_SIZE=100
-OFFSET=0
-FOUNDATION_ID="a0941000002wBz4AAE" # CNCF Foundation ID
 FORMING_PROJECTS_STATUS="Formation - Exploratory"
 FORMING_PROJECTS_TEMP_FILE=$(mktemp)
 
@@ -163,39 +161,93 @@ print_html_footer() {
 EOF
 }
 
-# Function: Fetch all paginated project data from the API
+# Function: Fetch all paginated project data from the V2 Query Service
 fetch_all_projects() {
-    local offset=0
-    while true; do
-        local current_api_url="${BASE_API_URL}?offset=${offset}&limit=${PAGE_SIZE}"
-        local response
-        response=$(curl -sS -H "Authorization: Bearer $LFX_TOKEN" "$current_api_url")
+    local response_file
+    local page_token=""
+    local parent_uid=""
+    response_file=$(mktemp)
 
-        # Validate JSON and presence of .Data
-        if ! echo "$response" | jq -e '.Data' > /dev/null 2>&1; then
-            echo "Error: Invalid JSON response or 'Data' array not found for offset $offset." >&2
-            break
+    # Find the single CNCF parent project.
+    for _ in $(seq 1 50); do
+        if ! curl -fsS -H "Authorization: Bearer $LFX_TOKEN" -H "Accept: application/json" \
+            --get "$BASE_API_URL" \
+            --data-urlencode 'v=1' \
+            --data-urlencode 'type=project' \
+            --data-urlencode "page_size=$PAGE_SIZE" \
+            --data-urlencode 'name=cncf' \
+            ${page_token:+--data-urlencode "page_token=$page_token"} > "$response_file"; then
+            echo "Error: unable to query the CNCF parent project." >&2
+            rm -f "$response_file"
+            return 1
+        fi
+        if ! jq -e '.resources | arrays' "$response_file" >/dev/null; then
+            echo "Error: invalid V2 parent project response." >&2
+            rm -f "$response_file"
+            return 1
         fi
 
-        local projects_received_on_page
-        projects_received_on_page=$(echo "$response" | jq '.Data | length')
-        if [ "$projects_received_on_page" -eq 0 ]; then
-            break
+        parent_uid=$(jq -r '[.resources[].data | select(((.slug // "") | ascii_downcase) == "cncf") | .uid | strings]
+            | if length == 1 then .[0] else empty end' "$response_file")
+        [ -n "$parent_uid" ] && break
+
+        page_token=$(jq -r '.page_token // ""' "$response_file")
+        [ -n "$page_token" ] || break
+    done
+
+    if [ -z "$parent_uid" ]; then
+        echo "Error: expected exactly one V2 project with the slug cncf." >&2
+        rm -f "$response_file"
+        return 1
+    fi
+
+    # Fetch CNCF child projects, following Query Service continuation tokens.
+    page_token=""
+    local project_count=0
+    for _ in $(seq 1 50); do
+        if ! curl -fsS -H "Authorization: Bearer $LFX_TOKEN" -H "Accept: application/json" \
+            --get "$BASE_API_URL" \
+            --data-urlencode 'v=1' \
+            --data-urlencode 'type=project' \
+            --data-urlencode "page_size=$PAGE_SIZE" \
+            --data-urlencode "parent=project:$parent_uid" \
+            ${page_token:+--data-urlencode "page_token=$page_token"} > "$response_file"; then
+            echo "Error: unable to query CNCF child projects." >&2
+            rm -f "$response_file"
+            return 1
+        fi
+        if ! jq -e '.resources | arrays' "$response_file" >/dev/null; then
+            echo "Error: invalid V2 child project response." >&2
+            rm -f "$response_file"
+            return 1
         fi
 
-        # Output main category projects as JSON lines
-        echo "$response" | jq -c '.Data[] | select(.Foundation.ID == "'"$FOUNDATION_ID"'" and .Status == "Active") | {Name: .Name, Slug: .Slug, Category: .Category, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}'
+        jq -c '.resources[].data
+            | select(.stage == "Active")
+            | {Name: .name, Slug: .slug, Category: .category,
+               ProjectLogo: (.logo_url // .project_logo // .logo // ""),
+               RepositoryURL: (.repository_url // "")}' "$response_file"
 
-        # Output forming projects to temp file
         local forming_json
-        forming_json=$(echo "$response" | jq -c '.Data[] | select(.Foundation.ID == "'"$FOUNDATION_ID"'" and .Status == "'"$FORMING_PROJECTS_STATUS"'") | {Name: .Name, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
+        forming_json=$(jq -c '.resources[].data
+            | select(.stage == "'"$FORMING_PROJECTS_STATUS"'")
+            | {Name: .name, ProjectLogo: (.logo_url // .project_logo // .logo // ""),
+               RepositoryURL: (.repository_url // "")}' "$response_file")
         if [ -n "$forming_json" ]; then
             echo "$forming_json" >> "$FORMING_PROJECTS_TEMP_FILE"
         fi
 
-        offset=$((offset + projects_received_on_page))
+        project_count=$((project_count + $(jq '.resources | length' "$response_file")))
+        page_token=$(jq -r '.page_token // ""' "$response_file")
+        [ -n "$page_token" ] || break
         sleep 0.2
     done
+
+    rm -f "$response_file"
+    if [ "$project_count" -eq 0 ]; then
+        echo "Error: no CNCF child projects are visible." >&2
+        return 1
+    fi
 }
 
 # Function: Generate HTML for main project categories using jq
