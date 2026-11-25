@@ -21,7 +21,7 @@ The generated site is suitable for publishing as a GitHub Pages site or for use 
 - **jq**: Command-line JSON processor (required by the script)
 - **curl**: For API requests
 - **Bash**: The script uses bash-specific features
-- **LFX_TOKEN**: You must provide a valid LFX API token as an environment variable
+- **LFX_TOKEN**: For manual runs, provide a valid LFX V2 API token. GitHub Actions mints one at runtime from organization credentials.
 
 ### Running the Script
 
@@ -36,15 +36,16 @@ The generated site is suitable for publishing as a GitHub Pages site or for use 
    The script will generate an `index.html` file in the repository root (or in the directory specified by `$GITHUB_WORKSPACE`).
 
 ### GitHub Actions
-This script is designed to be used as part of a GitHub Action workflow. Ensure your workflow sets the `LFX_TOKEN` secret and checks out the repository.
+This script is designed to be used as part of a GitHub Action workflow. The workflow supports manual dispatch and runs daily at `06:00 UTC`. It mints a short-lived production V2 token from the `LFX_PROD_CLIENT_ID` and `LFX_PROD_CLIENT_SECRET` organization secrets. A repository-level `LFX_TOKEN` secret is not required.
 
 ## File Structure
 - `calendar_update/entrypoint.sh`: Main script for fetching data and generating HTML
+- `calendar_update/mint_lfx_token.sh`: Mints a short-lived LFX V2 API token in GitHub Actions
 - `index.html`: Output file with the project calendar listing
 - `calendar_update/action.yaml`: (If present) GitHub Action metadata
 
 ## Customization
-- **Foundation ID:** The script is set up for CNCF by default. To use for another foundation, change the `FOUNDATION_ID` variable in the script.
+- **Project scope:** The script finds the V2 project with the `cncf` slug and retrieves its child projects.
 - **Styling:** Edit the HTML/CSS in the script for custom branding or layout.
 
 ## Contributing
